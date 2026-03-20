@@ -32,6 +32,7 @@ jobs:
           --onefile
           --windowed
           --name Aria
+          --icon aria.ico
           --collect-all sounddevice
           --collect-all winpty
           --hidden-import winreg

@@ -246,15 +246,10 @@ class TerminalWidget(tk.Frame):
             insertbackground=TERM_FG,
             relief=tk.FLAT,
             borderwidth=0,
-            wrap=tk.NONE,
+            wrap=tk.CHAR,
             cursor="xterm",
             state=tk.DISABLED,
         )
-        vsb = tk.Scrollbar(self, orient=tk.VERTICAL, command=self._text.yview)
-        hsb = tk.Scrollbar(self, orient=tk.HORIZONTAL, command=self._text.xview)
-        self._text.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
-        hsb.pack(side=tk.BOTTOM, fill=tk.X)
         self._text.pack(fill=tk.BOTH, expand=True)
 
         self._text.bind("<Key>", self._on_key)
@@ -519,6 +514,10 @@ class AriaApp:
         self.root.geometry("1280x820")
         self.root.configure(bg="#1e1e2e")
         self.root.minsize(800, 500)
+
+        _icon = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aria.ico")
+        if os.path.exists(_icon):
+            self.root.iconbitmap(_icon)
 
         self._state = "idle"
         self._frames: list[np.ndarray] = []
