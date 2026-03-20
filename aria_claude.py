@@ -562,6 +562,8 @@ class AriaApp:
         self._paused = False
         self._frames: list[np.ndarray] = []
         self._lock = threading.Lock()
+        self._listening_active = False
+        self._listening_guard = threading.Lock()
 
         # Mic health tracking
         self._mic_connected: bool = False
@@ -900,6 +902,10 @@ class AriaApp:
             return
         if not (self._terminal_ready and self._api_ready and self._mic_ready):
             return
+        with self._listening_guard:
+            if self._listening_active:
+                return
+            self._listening_active = True
         with self._lock:
             self._state = "listening"
             self._frames.clear()
@@ -912,6 +918,13 @@ class AriaApp:
         Phase 1: wait for voice activity, clearing silence frames.
         Phase 2: record until silence after speech, then hand off.
         """
+        try:
+            self._listening_loop_body()
+        finally:
+            with self._listening_guard:
+                self._listening_active = False
+
+    def _listening_loop_body(self):
         # Phase 1 — wait for speech onset
         while True:
             time.sleep(0.1)
@@ -1045,11 +1058,12 @@ class AriaApp:
             self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
             print(f"[transcribe] error: {exc}")
         finally:
-            self.root.after(0, self._stop_transcribe_timer)
             with self._lock:
                 if self._state == "processing":
                     self._state = "idle"
-            self._enter_listening(skip_status=skip_status)
+            _skip = skip_status
+            self.root.after(0, self._stop_transcribe_timer)
+            self.root.after(0, lambda: self._enter_listening(skip_status=_skip))
 
     # ── Startup registration ───────────────────────────────────────────────
 
