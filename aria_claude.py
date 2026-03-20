@@ -867,9 +867,14 @@ class AriaApp:
             return
         self._paused = not self._paused
         if self._paused:
+            with self._lock:
+                if self._state in ("listening", "processing"):
+                    self._state = "idle"
+                self._frames.clear()
+            self._stop_transcribe_timer()
             self._set_status("⏸ Listening paused  (press F9 to resume)", "#f9e2af")
         else:
-            self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7")
+            self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")
             self._enter_listening(skip_status=True)
 
     def _enter_listening(self, skip_status=False):
@@ -882,7 +887,7 @@ class AriaApp:
             self._state = "listening"
             self._frames.clear()
         if not skip_status:
-            self.root.after(0, lambda: self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7"))
+            self.root.after(0, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
         threading.Thread(target=self._listening_loop, daemon=True).start()
 
     def _listening_loop(self):
@@ -914,7 +919,7 @@ class AriaApp:
                 if self._state == "listening":
                     self._frames.clear()
 
-        self.root.after(0, lambda: self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7"))
+        self.root.after(0, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
 
         # Phase 2 — record until silence
         silence_since: float | None = None
@@ -922,6 +927,8 @@ class AriaApp:
 
         while True:
             time.sleep(0.1)
+            if self._paused:
+                return
             with self._lock:
                 if self._state != "listening":
                     return
@@ -999,26 +1006,26 @@ class AriaApp:
             _log.info("TRANSCRIBED  %r", text)
             _log.info("VERDICT      %s  (subagent raw: %r)", verdict_label, verdict)
 
-            if valid and self._terminal:
+            if valid and self._terminal and not self._paused:
                 cleaned = re.sub(r'\b(aria|arya|area|ariel|ariah|aeria|areia|riya|ria|aya|ah\s+yeah|are)\b[,\s]*', '', text, flags=re.IGNORECASE).strip()
                 self._terminal.send_text(cleaned or text)
             elif not valid:
                 skip_status = True
                 self.root.after(0, lambda: self._set_status("✗ Ignored: guess it was not meant for me", "#f38ba8"))
-                self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7"))
+                self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
 
         except requests.exceptions.ConnectionError:
             _log.error("TRANSCRIBE ERROR  API unreachable")
             self.root.after(0, lambda: self._set_status("⚠ API unreachable", "#f38ba8"))
-            self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7"))
+            self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
         except requests.exceptions.Timeout:
             _log.error("TRANSCRIBE ERROR  API timed out")
             self.root.after(0, lambda: self._set_status("⚠ API timed out", "#f38ba8"))
-            self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7"))
+            self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
         except Exception as exc:
             _log.exception("TRANSCRIBE ERROR")
             self.root.after(0, lambda: self._set_status("⚠ Error — see log", "#f38ba8"))
-            self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7"))
+            self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
             print(f"[transcribe] error: {exc}")
         finally:
             self.root.after(0, self._stop_transcribe_timer)
