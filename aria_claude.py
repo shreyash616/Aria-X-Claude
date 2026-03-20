@@ -253,6 +253,8 @@ class TerminalWidget(tk.Frame):
         self._text.pack(fill=tk.BOTH, expand=True)
 
         self._text.bind("<Key>", self._on_key)
+        self._text.bind("<MouseWheel>", self._on_mousewheel)
+        self.bind("<MouseWheel>", self._on_mousewheel)
         self._text.focus_set()
         self.bind("<Configure>", self._on_resize)
 
@@ -440,6 +442,17 @@ class TerminalWidget(tk.Frame):
 
         if event.char:
             pty.write(event.char)
+        return "break"
+
+    def _on_mousewheel(self, event: tk.Event):
+        with self._pty_lock:
+            pty = self._pty
+        if pty is None or not pty.isalive():
+            return "break"
+        # On Windows event.delta is ±120 per notch; send 3 arrow keys per notch
+        steps = abs(event.delta) // 120
+        seq = "\x1b[A" if event.delta > 0 else "\x1b[B"
+        pty.write(seq * max(1, steps))
         return "break"
 
     # ── Resize ─────────────────────────────────────────────────────────────
