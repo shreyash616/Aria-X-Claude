@@ -947,7 +947,7 @@ class AriaApp:
             _log.info("VERDICT      %s  (subagent raw: %r)", verdict_label, verdict)
 
             if valid and self._terminal:
-                cleaned = re.sub(r'\b(aria|arya|area|ariel|ariah|aeria|areia)\b[,\s]*', '', text, flags=re.IGNORECASE).strip()
+                cleaned = re.sub(r'\b(aria|arya|area|ariel|ariah|aeria|areia|riya|ria|aya|ah\s+yeah|are)\b[,\s]*', '', text, flags=re.IGNORECASE).strip()
                 self._terminal.send_text(cleaned or text)
             elif not valid:
                 skip_status = True
