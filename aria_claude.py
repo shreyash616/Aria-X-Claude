@@ -155,6 +155,9 @@ def _resolve_color(color, is_bg: bool = False) -> str:
         return TERM_BG if is_bg else TERM_FG
     if isinstance(color, int):
         return _256_to_hex(color)
+    if isinstance(color, (tuple, list)) and len(color) == 3:
+        r, g, b = color
+        return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
     return PYTE_COLOR_MAP.get(str(color).lower(), TERM_BG if is_bg else TERM_FG)
 
 
@@ -216,11 +219,12 @@ def _tone_error():
 class TerminalWidget(tk.Frame):
     """Tkinter widget that wraps a ConPTY session via pywinpty + pyte."""
 
-    def __init__(self, parent, command: list[str], on_first_output=None, **kwargs):
+    def __init__(self, parent, command: list[str], on_first_output=None, on_f9=None, **kwargs):
         super().__init__(parent, bg=TERM_BG, **kwargs)
 
         self._font = self._detect_font()
         self._on_first_output = on_first_output
+        self._on_f9 = on_f9
         self._first_output_fired = False
 
         self._cols = 120
@@ -436,6 +440,11 @@ class TerminalWidget(tk.Frame):
                 pty.write(chr(code))
             return "break"
 
+        if event.keysym == "F9":
+            if self._on_f9:
+                self.after(0, self._on_f9)
+            return "break"
+
         if event.keysym in SPECIAL_KEY_MAP:
             pty.write(SPECIAL_KEY_MAP[event.keysym])
             return "break"
@@ -533,16 +542,20 @@ class AriaApp:
             self.root.iconbitmap(_icon)
 
         self._state = "idle"
+        self._paused = False
         self._frames: list[np.ndarray] = []
         self._lock = threading.Lock()
 
         # Mic health tracking
         self._mic_connected: bool = False
 
+        self._terminal_ready: bool = False
         self._api_ready: bool = False
+        self._mic_ready: bool = False
         self._terminal: TerminalWidget | None = None
 
         self._build_ui()
+        self.root.bind("<F9>", lambda e: self._toggle_pause())
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.mainloop()
 
@@ -601,7 +614,7 @@ class AriaApp:
 
         self._model_lbl = tk.Label(
             foot,
-            text="Warming up …",
+            text="",
             bg="#181825",
             fg="#94e2d5",
             font=("Segoe UI", 8),
@@ -638,8 +651,11 @@ class AriaApp:
             self._content,
             command=["cmd.exe", "/k", claude_exe, "--remote-control"],
             on_first_output=self._on_claude_ready,
+            on_f9=self._toggle_pause,
         )
         # Terminal is created but not packed — shown after loading
+        # Start API + mic checks in parallel with terminal startup
+        self._start_voice_thread()
 
     def _build_loading_view(self, parent: tk.Frame) -> tk.Frame:
         frame = tk.Frame(parent, bg=TERM_BG)
@@ -669,10 +685,8 @@ class AriaApp:
         self._loading_anim_running = True
         self._loading_anim_id: str | None = None
         self._loading_start = time.time()
+        self._loading_status = "Starting Claude"
         self._animate_loading()
-
-        # Fallback: force-show terminal after 10 s even if PTY never fires
-        self.root.after(10_000, self._on_claude_ready)
 
         return frame
 
@@ -680,13 +694,20 @@ class AriaApp:
         if not self._loading_anim_running:
             return
         dots = ["   ", ".  ", ".. ", "..."]
-        self._loading_lbl.config(text=f"Loading Claude{dots[self._loading_anim_idx % 4]}")
+        self._loading_lbl.config(text=f"{self._loading_status}{dots[self._loading_anim_idx % 4]}")
         self._loading_anim_idx += 1
         self._loading_anim_id = self.root.after(420, self._animate_loading)
 
     _MIN_LOADING_S = 2.0
 
     def _on_claude_ready(self):
+        self._terminal_ready = True
+        self._loading_status = "Connecting to API"
+        self._check_all_ready()
+
+    def _check_all_ready(self):
+        if not (self._terminal_ready and self._api_ready and self._mic_ready):
+            return
         elapsed = time.time() - self._loading_start
         delay_ms = max(0, int((self._MIN_LOADING_S - elapsed) * 1000))
         self.root.after(delay_ms, self._show_terminal)
@@ -701,7 +722,7 @@ class AriaApp:
         self._loading_frame.pack_forget()
         self._terminal.pack(fill=tk.BOTH, expand=True)
         self._terminal.focus_set()
-        self._start_voice_thread()
+        self._enter_listening()
 
     def _tick_transcribe_status(self):
         with self._lock:
@@ -747,7 +768,6 @@ class AriaApp:
 
     def _connect_and_start(self):
         """Poll /health until the API is reachable, then start the record loop."""
-        self.root.after(0, lambda: self._start_label_anim("Connecting to API", "#94e2d5"))
         url = f"{API_BASE_URL}/health"
         MAX_WAIT_S = 120
         waited = 0
@@ -775,6 +795,8 @@ class AriaApp:
             0,
             lambda: self._model_lbl.config(text="API ready  |  listening for speech", fg="#a6e3a1"),
         )
+        self.root.after(0, lambda: setattr(self, "_loading_status", "Waiting for microphone"))
+        self.root.after(0, self._check_all_ready)
 
         threading.Thread(target=self._record_loop, daemon=True).start()
 
@@ -832,14 +854,30 @@ class AriaApp:
     def _on_mic_reconnected(self):
         self._set_status("✓ Microphone connected", "#a6e3a1")
         self._model_lbl.config(text="Mic ready  |  listening for speech", fg="#a6e3a1")
-        self._enter_listening()
+        if not self._mic_ready:
+            self._mic_ready = True
+            self._check_all_ready()
+        else:
+            self._enter_listening()
 
     # ── Listening ─────────────────────────────────────────────────────────
 
+    def _toggle_pause(self):
+        if not self.root.focus_displayof():
+            return
+        self._paused = not self._paused
+        if self._paused:
+            self._set_status("⏸ Listening paused  (press F9 to resume)", "#f9e2af")
+        else:
+            self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7")
+            self._enter_listening(skip_status=True)
+
     def _enter_listening(self, skip_status=False):
         """Switch to listening state and start the listening loop."""
-        if not self._api_ready:
-            return  # API not reachable yet; _connect_and_start will call this
+        if self._paused:
+            return
+        if not (self._terminal_ready and self._api_ready and self._mic_ready):
+            return
         with self._lock:
             self._state = "listening"
             self._frames.clear()
@@ -855,6 +893,8 @@ class AriaApp:
         # Phase 1 — wait for speech onset
         while True:
             time.sleep(0.1)
+            if self._paused:
+                return
             with self._lock:
                 if self._state != "listening":
                     return
