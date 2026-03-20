@@ -824,14 +824,15 @@ class AriaApp:
 
     # ── Listening ─────────────────────────────────────────────────────────
 
-    def _enter_listening(self):
+    def _enter_listening(self, skip_status=False):
         """Switch to listening state and start the listening loop."""
         if not self._api_ready:
             return  # API not reachable yet; _connect_and_start will call this
         with self._lock:
             self._state = "listening"
             self._frames.clear()
-        self.root.after(0, lambda: self._set_status('Listening…  (say "Aria" anywhere in your command)', "#cba6f7"))
+        if not skip_status:
+            self.root.after(0, lambda: self._set_status('Listening…  (say "Aria" anywhere in your command)', "#cba6f7"))
         threading.Thread(target=self._listening_loop, daemon=True).start()
 
     def _listening_loop(self):
@@ -920,6 +921,7 @@ class AriaApp:
 
     def _transcribe_and_send(self, frames: list[np.ndarray]):
         """Ship audio to the API, validate, send to terminal if valid."""
+        skip_status = False
         try:
             if not frames:
                 return
@@ -949,8 +951,8 @@ class AriaApp:
                 cleaned = re.sub(r'\b(aria|arya|area|ariel|ariah|aeria|areia)\b[,\s]*', '', text, flags=re.IGNORECASE).strip()
                 self._terminal.send_text(cleaned or text)
             elif not valid:
-                preview = text if len(text) <= 42 else text[:42] + "…"
-                self.root.after(0, lambda p=preview: self._set_status(f"✗ Blocked: {p}", "#f38ba8"))
+                skip_status = True
+                self.root.after(0, lambda: self._set_status("✗ Ignored: guess it was not meant for me", "#f38ba8"))
                 self.root.after(3000, lambda: self._set_status('Listening…  (say "Aria" anywhere in your command)', "#cba6f7"))
 
         except requests.exceptions.ConnectionError:
@@ -971,7 +973,7 @@ class AriaApp:
             with self._lock:
                 if self._state == "processing":
                     self._state = "idle"
-            self._enter_listening()
+            self._enter_listening(skip_status=skip_status)
 
     # ── Startup registration ───────────────────────────────────────────────
 
