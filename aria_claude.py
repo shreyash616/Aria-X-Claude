@@ -229,10 +229,12 @@ class TerminalWidget(tk.Frame):
 
         self._cols = 120
         self._rows = 36
-        self._screen = pyte.Screen(self._cols, self._rows)
+        self._screen = pyte.HistoryScreen(self._cols, self._rows, history=2000, ratio=3/self._rows)
         self._stream = pyte.ByteStream(self._screen)
         self._screen_lock = threading.Lock()
         self._dirty = False
+        self._scroll_dirty = False
+        self._in_history = False
         self._first_render = True
         self._need_full_redraw = False
 
@@ -330,8 +332,16 @@ class TerminalWidget(tk.Frame):
     # ── Rendering ──────────────────────────────────────────────────────────
 
     def _redraw_loop(self):
-        if self._dirty:
+        if self._dirty and self._in_history:
+            # New PTY output arrived while scrolled — jump back to bottom
+            with self._screen_lock:
+                while self._screen.history.position > 0:
+                    self._screen.next_page()
+            self._in_history = False
+            self._need_full_redraw = True
+        if self._dirty or self._scroll_dirty:
             self._dirty = False
+            self._scroll_dirty = False
             self._redraw()
         self.after(REDRAW_MS, self._redraw_loop)
 
@@ -418,7 +428,8 @@ class TerminalWidget(tk.Frame):
         try:
             idx = f"{cur_y + 1}.{cur_x}"
             self._text.mark_set(tk.INSERT, idx)
-            self._text.see(idx)
+            if not self._in_history:
+                self._text.see(idx)
         except Exception:
             pass
 
@@ -454,14 +465,16 @@ class TerminalWidget(tk.Frame):
         return "break"
 
     def _on_mousewheel(self, event: tk.Event):
-        with self._pty_lock:
-            pty = self._pty
-        if pty is None or not pty.isalive():
-            return "break"
-        # On Windows event.delta is ±120 per notch; send 3 arrow keys per notch
-        steps = abs(event.delta) // 120
-        seq = "\x1b[A" if event.delta > 0 else "\x1b[B"
-        pty.write(seq * max(1, steps))
+        steps = max(1, abs(event.delta) // 120)
+        with self._screen_lock:
+            for _ in range(steps):
+                if event.delta > 0:
+                    self._screen.prev_page()
+                else:
+                    self._screen.next_page()
+            self._in_history = self._screen.history.position > 0
+        self._need_full_redraw = True
+        self._scroll_dirty = True
         return "break"
 
     # ── Resize ─────────────────────────────────────────────────────────────
@@ -540,6 +553,10 @@ class AriaApp:
         _icon = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aria.ico")
         if os.path.exists(_icon):
             self.root.iconbitmap(_icon)
+            try:
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("aria.claude.app")
+            except Exception:
+                pass
 
         self._state = "idle"
         self._paused = False
