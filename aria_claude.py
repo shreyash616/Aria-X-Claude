@@ -623,7 +623,7 @@ class AriaApp:
 
         self._terminal = TerminalWidget(
             self._content,
-            command=["cmd.exe", "/k", claude_exe],
+            command=["cmd.exe", "/k", claude_exe, "--remote-control"],
             on_first_output=self._on_claude_ready,
         )
         # Terminal is created but not packed — shown after loading
