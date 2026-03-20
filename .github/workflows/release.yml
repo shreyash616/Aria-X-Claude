@@ -33,6 +33,7 @@ jobs:
           --windowed
           --name Aria
           --collect-all sounddevice
+          --collect-all winpty
           --hidden-import winreg
           aria_setup.py
 
