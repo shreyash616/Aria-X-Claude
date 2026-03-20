@@ -216,10 +216,12 @@ def _tone_error():
 class TerminalWidget(tk.Frame):
     """Tkinter widget that wraps a ConPTY session via pywinpty + pyte."""
 
-    def __init__(self, parent, command: list[str], **kwargs):
+    def __init__(self, parent, command: list[str], on_first_output=None, **kwargs):
         super().__init__(parent, bg=TERM_BG, **kwargs)
 
         self._font = self._detect_font()
+        self._on_first_output = on_first_output
+        self._first_output_fired = False
 
         self._cols = 120
         self._rows = 36
@@ -293,6 +295,9 @@ class TerminalWidget(tk.Frame):
         except Exception as exc:
             msg = f"Failed to start terminal: {exc}"
             self.after(0, lambda: self._show_error(msg))
+            if not self._first_output_fired and self._on_first_output:
+                self._first_output_fired = True
+                self.after(0, self._on_first_output)
             return
 
         with self._pty_lock:
@@ -307,6 +312,9 @@ class TerminalWidget(tk.Frame):
                 with self._screen_lock:
                     self._stream.feed(raw)
                 self._dirty = True
+                if not self._first_output_fired and self._on_first_output:
+                    self._first_output_fired = True
+                    self.after(0, self._on_first_output)
 
             except EOFError:
                 break
@@ -523,7 +531,6 @@ class AriaApp:
         self._terminal: TerminalWidget | None = None
 
         self._build_ui()
-        self._start_voice_thread()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.mainloop()
 
@@ -555,7 +562,7 @@ class AriaApp:
             bar,
             textvariable=self._status_var,
             bg="#313244",
-            fg="#45475a",
+            fg="#94e2d5",
             font=("Consolas", 10),
         )
         self._status_lbl.pack(side=tk.RIGHT, padx=8, pady=10)
@@ -575,10 +582,31 @@ class AriaApp:
             or shutil.which("claude", path=_extra_path + os.pathsep + os.environ.get("PATH", ""))
             or os.path.expanduser(r"~\.local\bin\claude.exe")
         )
+
+        foot = tk.Frame(self.root, bg="#181825", height=22)
+        foot.pack(fill=tk.X, side=tk.BOTTOM)
+        foot.pack_propagate(False)
+
+        self._model_lbl = tk.Label(
+            foot,
+            text="Warming up …",
+            bg="#181825",
+            fg="#94e2d5",
+            font=("Segoe UI", 8),
+        )
+        self._model_lbl.pack(side=tk.LEFT, padx=8, pady=3)
+
+        tk.Label(foot, text=APP_NAME, bg="#181825", fg="#313244", font=("Segoe UI", 8)).pack(
+            side=tk.RIGHT, padx=8, pady=3
+        )
+
+        self._content = tk.Frame(self.root, bg=TERM_BG)
+        self._content.pack(fill=tk.BOTH, expand=True)
+
         if not claude_exe or not os.path.exists(claude_exe):
             self._terminal = None
             tk.Label(
-                self.root,
+                self._content,
                 text=(
                     "Claude CLI not found.\n\n"
                     "Install it with:  npm install -g @anthropic-ai/claude-code\n"
@@ -590,28 +618,90 @@ class AriaApp:
                 justify=tk.CENTER,
             ).pack(expand=True)
             return
+
+        self._loading_frame = self._build_loading_view(self._content)
+        self._loading_frame.pack(fill=tk.BOTH, expand=True)
+
         self._terminal = TerminalWidget(
-            self.root,
+            self._content,
             command=["cmd.exe", "/k", claude_exe],
+            on_first_output=self._on_claude_ready,
         )
+        # Terminal is created but not packed — shown after loading
+
+    def _build_loading_view(self, parent: tk.Frame) -> tk.Frame:
+        frame = tk.Frame(parent, bg=TERM_BG)
+
+        # Vertically centred inner block
+        inner = tk.Frame(frame, bg=TERM_BG)
+        inner.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(
+            inner,
+            text="⚡  Aria  ×  Claude",
+            bg=TERM_BG,
+            fg="#cdd6f4",
+            font=("Segoe UI", 22, "bold"),
+        ).pack(pady=(0, 10))
+
+        self._loading_lbl = tk.Label(
+            inner,
+            text="Loading Claude...",
+            bg=TERM_BG,
+            fg="#7f849c",
+            font=("Segoe UI", 11),
+        )
+        self._loading_lbl.pack()
+
+        self._loading_anim_idx = 0
+        self._loading_anim_running = True
+        self._loading_anim_id: str | None = None
+        self._loading_start = time.time()
+        self._animate_loading()
+
+        # Fallback: force-show terminal after 10 s even if PTY never fires
+        self.root.after(10_000, self._on_claude_ready)
+
+        return frame
+
+    def _animate_loading(self):
+        if not self._loading_anim_running:
+            return
+        dots = ["   ", ".  ", ".. ", "..."]
+        self._loading_lbl.config(text=f"Loading Claude{dots[self._loading_anim_idx % 4]}")
+        self._loading_anim_idx += 1
+        self._loading_anim_id = self.root.after(420, self._animate_loading)
+
+    _MIN_LOADING_S = 2.0
+
+    def _on_claude_ready(self):
+        elapsed = time.time() - self._loading_start
+        delay_ms = max(0, int((self._MIN_LOADING_S - elapsed) * 1000))
+        self.root.after(delay_ms, self._show_terminal)
+
+    def _show_terminal(self):
+        if getattr(self, "_terminal_shown", False):
+            return
+        self._terminal_shown = True
+        self._loading_anim_running = False
+        if self._loading_anim_id:
+            self.root.after_cancel(self._loading_anim_id)
+        self._loading_frame.pack_forget()
         self._terminal.pack(fill=tk.BOTH, expand=True)
+        self._terminal.focus_set()
+        self._start_voice_thread()
 
-        foot = tk.Frame(self.root, bg="#181825", height=22)
-        foot.pack(fill=tk.X, side=tk.BOTTOM)
-        foot.pack_propagate(False)
+    def _tick_transcribe_status(self):
+        with self._lock:
+            if self._state != "processing":
+                return
+        elapsed = int(time.time() - self._transcribe_start)
+        self._set_status(f"Transcribing… {elapsed}s", "#fab387")
+        self._transcribe_timer_id = self.root.after(1000, self._tick_transcribe_status)
 
-        self._model_lbl = tk.Label(
-            foot,
-            text="Warming up …",
-            bg="#181825",
-            fg="#fab387",
-            font=("Segoe UI", 8),
-        )
-        self._model_lbl.pack(side=tk.LEFT, padx=8, pady=3)
-
-        tk.Label(foot, text=APP_NAME, bg="#181825", fg="#313244", font=("Segoe UI", 8)).pack(
-            side=tk.RIGHT, padx=8, pady=3
-        )
+    def _stop_transcribe_timer(self):
+        if hasattr(self, "_transcribe_timer_id"):
+            self.root.after_cancel(self._transcribe_timer_id)
 
     def _set_status(self, text: str, color: str = "#45475a"):
         self._status_var.set(text)
@@ -645,7 +735,7 @@ class AriaApp:
 
     def _connect_and_start(self):
         """Poll /health until the API is reachable, then start the record loop."""
-        self.root.after(0, lambda: self._start_label_anim("Connecting to API", "#fab387"))
+        self.root.after(0, lambda: self._start_label_anim("Connecting to API", "#94e2d5"))
         url = f"{API_BASE_URL}/health"
         MAX_WAIT_S = 120
         waited = 0
@@ -808,7 +898,8 @@ class AriaApp:
             frames = list(self._frames)
             self._frames.clear()
 
-        self.root.after(0, lambda: self._set_status("Transcribing...", "#fab387"))
+        self._transcribe_start = time.time()
+        self.root.after(0, self._tick_transcribe_status)
         threading.Thread(target=self._transcribe_and_send, args=(frames,), daemon=True).start()
 
     # ── API call ───────────────────────────────────────────────────────────
@@ -876,6 +967,7 @@ class AriaApp:
             self.root.after(3000, lambda: self._set_status('Listening…  (say "Aria" anywhere in your command)', "#cba6f7"))
             print(f"[transcribe] error: {exc}")
         finally:
+            self.root.after(0, self._stop_transcribe_timer)
             with self._lock:
                 if self._state == "processing":
                     self._state = "idle"
