@@ -1,0 +1,79 @@
+Copyright (c) 2026 Shreyash Padhi. All rights reserved.
+
+                    ARIA — SOURCE AVAILABLE LICENSE
+                           Version 1.0, March 2026
+
+TERMS AND CONDITIONS
+
+1. DEFINITIONS
+
+   "Software" means the Aria voice assistant source code, documentation,
+   and all associated files in this repository.
+
+   "Author" means Shreyash Padhi, the original creator and sole copyright
+   holder of the Software.
+
+   "You" means any individual or legal entity exercising rights under this
+   License.
+
+   "Commercial Use" means any use of the Software, in whole or in part,
+   that is primarily intended for or directed toward commercial advantage
+   or monetary compensation.
+
+2. GRANT OF RIGHTS
+
+   Subject to the terms of this License, the Author grants You a
+   worldwide, royalty-free, non-exclusive license to:
+
+   a) View and study the source code;
+   b) Use the Software for personal, non-commercial purposes;
+   c) Modify the Software for personal, non-commercial purposes;
+   d) Share unmodified or modified copies for non-commercial purposes,
+      provided You comply with Section 3.
+
+3. CONDITIONS
+
+   Any use or distribution of the Software, modified or unmodified, must:
+
+   a) Retain this license file and all copyright notices intact;
+   b) Clearly attribute the original work to Shreyash Padhi;
+   c) Not misrepresent the origin of the Software or claim authorship;
+   d) Not remove or obscure any proprietary notices.
+
+4. RESTRICTIONS
+
+   You may NOT, without prior written permission from the Author:
+
+   a) Use the Software or any derivative work for Commercial Use;
+   b) Sell, license, sublicense, or otherwise monetise the Software;
+   c) Distribute the Software as part of a commercial product or service;
+   d) Use the name "Aria", the Author's name, or any associated branding
+      to endorse or promote products derived from this Software.
+
+5. INTELLECTUAL PROPERTY
+
+   The Software, including all original code, design decisions, and
+   concepts, remains the exclusive intellectual property of Shreyash Padhi.
+   This License does not transfer any ownership rights to You. All rights
+   not expressly granted here are reserved by the Author.
+
+6. COMMERCIAL LICENSING
+
+   If You wish to use the Software for Commercial Use, you must obtain a
+   separate written commercial license from the Author. Contact:
+   shreyashpadhi101@gmail.com
+
+7. DISCLAIMER OF WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+   IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY ARISING FROM THE USE OF OR INABILITY TO USE THE SOFTWARE.
+
+8. TERMINATION
+
+   This License and the rights granted hereunder will terminate
+   automatically if You fail to comply with any of its terms. Upon
+   termination, You must destroy all copies of the Software in your
+   possession.
