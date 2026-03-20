@@ -844,7 +844,7 @@ class AriaApp:
             self._state = "listening"
             self._frames.clear()
         if not skip_status:
-            self.root.after(0, lambda: self._set_status('Listening…  (say "Aria" anywhere in your command)', "#cba6f7"))
+            self.root.after(0, lambda: self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7"))
         threading.Thread(target=self._listening_loop, daemon=True).start()
 
     def _listening_loop(self):
@@ -874,7 +874,7 @@ class AriaApp:
                 if self._state == "listening":
                     self._frames.clear()
 
-        self.root.after(0, lambda: self._set_status('Listening…  (say "Aria" anywhere in your command)', "#cba6f7"))
+        self.root.after(0, lambda: self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7"))
 
         # Phase 2 — record until silence
         silence_since: float | None = None
@@ -965,20 +965,20 @@ class AriaApp:
             elif not valid:
                 skip_status = True
                 self.root.after(0, lambda: self._set_status("✗ Ignored: guess it was not meant for me", "#f38ba8"))
-                self.root.after(3000, lambda: self._set_status('Listening…  (say "Aria" anywhere in your command)', "#cba6f7"))
+                self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7"))
 
         except requests.exceptions.ConnectionError:
             _log.error("TRANSCRIBE ERROR  API unreachable")
             self.root.after(0, lambda: self._set_status("⚠ API unreachable", "#f38ba8"))
-            self.root.after(3000, lambda: self._set_status('Listening…  (say "Aria" anywhere in your command)', "#cba6f7"))
+            self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7"))
         except requests.exceptions.Timeout:
             _log.error("TRANSCRIBE ERROR  API timed out")
             self.root.after(0, lambda: self._set_status("⚠ API timed out", "#f38ba8"))
-            self.root.after(3000, lambda: self._set_status('Listening…  (say "Aria" anywhere in your command)', "#cba6f7"))
+            self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7"))
         except Exception as exc:
             _log.exception("TRANSCRIBE ERROR")
             self.root.after(0, lambda: self._set_status("⚠ Error — see log", "#f38ba8"))
-            self.root.after(3000, lambda: self._set_status('Listening…  (say "Aria" anywhere in your command)', "#cba6f7"))
+            self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria")', "#cba6f7"))
             print(f"[transcribe] error: {exc}")
         finally:
             self.root.after(0, self._stop_transcribe_timer)
