@@ -106,7 +106,7 @@ The window opens with a live `claude` session already running inside it. You can
 
 **How a command is processed:**
 1. Aria detects voice activity and starts recording.
-2. Recording stops automatically after 1.2 seconds of silence (or 60 seconds max).
+2. Recording stops automatically after 2 seconds of silence (or 60 seconds max).
 3. Audio is sent to the Aria Voice API for transcription.
 4. If *"Aria"* (or a similar-sounding word) is detected in the transcript, the cleaned prompt is typed into the terminal.
 5. If the wake word is absent, the audio is discarded and Aria resumes listening.

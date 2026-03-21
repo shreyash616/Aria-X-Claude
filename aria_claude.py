@@ -54,7 +54,7 @@ FONT_SIZE = 11
 REDRAW_MS = 50  # ~20 fps
 
 SILENCE_RMS = 0.02
-SILENCE_S = 1.2
+SILENCE_S = 2.0
 
 # ── Catppuccin Mocha palette ──────────────────────────────────────────────────
 TERM_BG = "#0c0c0c"
