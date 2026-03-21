@@ -1019,7 +1019,7 @@ class AriaApp:
             else:
                 silence_since = None
 
-            if time.time() - started > 30:
+            if time.time() - started > 60:
                 break
 
         with self._lock:
