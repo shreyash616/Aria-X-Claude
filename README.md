@@ -2,7 +2,7 @@
 
 A windowed voice assistant for Windows that wraps the [Claude CLI](https://docs.anthropic.com/en/docs/claude-cli) in a proper terminal emulator with hands-free voice control.
 
-Speak to Claude without touching the keyboard. Aria listens for a wake word, transcribes your speech locally or via its cloud API, and forwards your prompt directly into a live Claude session — all inside a clean, coloured terminal window.
+Speak to Claude without touching the keyboard. Aria continuously listens for your voice, transcribes your speech via its cloud API, and forwards your prompt directly into a live Claude session — all inside a clean, coloured terminal window.
 
 ---
 
@@ -25,7 +25,7 @@ Aria is two components that work together:
 
 1. **Capture** — mic audio is captured locally via `sounddevice`.
 2. **Transcribe** — audio is sent to the Aria Voice API, which runs Whisper `small.en` to produce a transcript.
-3. **Validate** — if the wake word is ambiguous, Claude Haiku double-checks whether *"Hey Aria"* was said.
+3. **Validate** — if confidence is low, Claude Haiku double-checks whether a variant of *"Aria"* was present in the transcript.
 4. **Forward** — confirmed prompts are typed into the embedded ConPTY terminal running `claude`.
 
 ---
@@ -33,11 +33,10 @@ Aria is two components that work together:
 ## Features
 
 - **Embedded terminal** — full ConPTY session running `claude` inside a tkinter window, with colour (256-color + truecolor), scrollback, and full keyboard input
-- **Push-to-talk** — hold `F9` to record, release to send; a short tone confirms start/stop
-- **Wake word** — say *"Hey Aria"* to go hands-free; Aria keeps listening automatically after each response
-- **Stop listening** — press `Escape` or say *"stop listening"* to exit hands-free mode at any time
+- **Always-on listening** — Aria continuously listens; when speech is detected it records until silence, then sends to the API automatically
+- **Wake word** — start your command with *"Ok Aria"*; the API checks for "Aria" (and common mishearings) and blocks commands that don't contain it
+- **Pause / resume** — press `F9` to pause listening, press `F9` again to resume
 - **Smart validation** — high-confidence transcriptions bypass Claude to save latency; ambiguous audio is verified by Claude Haiku
-- **Audio feedback** — distinct tones for wake, record-start, record-stop, and error states
 - **Catppuccin Mocha theme** — dark terminal with full ANSI colour support
 - **Runs at startup** — optional Windows startup registration via a first-run setup wizard
 - **Session logging** — all recognised prompts and API decisions are written to `aria_voice_log.txt`
@@ -101,22 +100,16 @@ The window opens with a live `claude` session already running inside it. You can
 
 | Action | How |
 |---|---|
-| Start recording (push-to-talk) | Hold `F9` |
-| Send command | Release `F9` |
-| Enter hands-free mode | Say *"Hey Aria"* |
-| Stop hands-free mode | Press `Escape` or say *"stop listening"* |
+| Speak a command | Say *"Ok Aria, [your prompt]"* — Aria is always listening |
+| Pause listening | Press `F9` |
+| Resume listening | Press `F9` again |
 
-**Push-to-talk flow:**
-1. Hold `F9` — you hear a short beep, Aria starts recording.
-2. Speak your prompt.
-3. Release `F9` — audio is sent for transcription.
-4. If a valid prompt is returned it is typed into the terminal automatically.
-
-**Hands-free flow:**
-1. Say *"Hey Aria"* — Aria beeps twice to confirm it heard you.
-2. Speak your prompt (Aria listens until silence is detected).
-3. Aria forwards the prompt and immediately listens for the next one.
-4. Say *"stop listening"* or press `Escape` to exit.
+**How a command is processed:**
+1. Aria detects voice activity and starts recording.
+2. Recording stops automatically after 1.2 seconds of silence (or 30 seconds max).
+3. Audio is sent to the Aria Voice API for transcription.
+4. If *"Aria"* (or a similar-sounding word) is detected in the transcript, the cleaned prompt is typed into the terminal.
+5. If the wake word is absent, the audio is discarded and Aria resumes listening.
 
 ### Keyboard shortcuts (in terminal)
 

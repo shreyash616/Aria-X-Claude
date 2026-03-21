@@ -10,7 +10,7 @@ pinned: false
 
 # Aria Voice API
 
-A FastAPI service that acts as the voice-processing backend for the [Aria desktop app](https://github.com/shreyashpadhi/Aria-X-Claude). It receives raw audio from the desktop app, transcribes it with Whisper, and uses Claude Haiku to confirm whether the wake word *"Hey Aria"* was present before forwarding the result.
+A FastAPI service that acts as the voice-processing backend for the [Aria desktop app](https://github.com/shreyashpadhi/Aria-X-Claude). It receives raw audio from the desktop app, transcribes it with Whisper, and uses Claude Haiku to confirm whether a variant of *"Aria"* was present in the transcript before forwarding the result.
 
 ---
 
