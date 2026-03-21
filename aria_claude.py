@@ -789,7 +789,7 @@ class AriaApp:
             if self._state != "processing":
                 return
         elapsed = int(time.time() - self._transcribe_start)
-        self._set_status(f"Transcribing… {elapsed}s  ·  F9 to cancel", "#fab387")
+        self._set_status(f"Transcribing… {elapsed}s  ·  F9 to cancel and pause listening", "#fab387")
         self._transcribe_timer_id = self.root.after(1000, self._tick_transcribe_status)
 
     def _stop_transcribe_timer(self):
