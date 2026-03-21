@@ -66,6 +66,7 @@ PYTE_COLOR_MAP: dict[str, str] = {
     "red": "#f38ba8",
     "green": "#a6e3a1",
     "yellow": "#f9e2af",
+    "brown": "#f9e2af",       # pyte uses "brown" for ANSI color 3 (ESC[33m)
     "blue": "#89b4fa",
     "magenta": "#cba6f7",
     "cyan": "#89dceb",
@@ -74,6 +75,7 @@ PYTE_COLOR_MAP: dict[str, str] = {
     "brightred": "#f38ba8",
     "brightgreen": "#a6e3a1",
     "brightyellow": "#f9e2af",
+    "brightbrown": "#f9e2af",  # pyte uses "brightbrown" for ESC[93m
     "brightblue": "#89b4fa",
     "brightmagenta": "#cba6f7",
     "brightcyan": "#89dceb",
@@ -117,25 +119,26 @@ SPECIAL_KEY_MAP: dict[str, str] = {
 
 def _256_to_hex(n: int) -> str:
     if n < 16:
+        # Catppuccin Mocha — must match PYTE_COLOR_MAP
         palette = [
-            "#000000",
-            "#800000",
-            "#008000",
-            "#808000",
-            "#000080",
-            "#800080",
-            "#008080",
-            "#c0c0c0",
-            "#808080",
-            "#ff0000",
-            "#00ff00",
-            "#ffff00",
-            "#0000ff",
-            "#ff00ff",
-            "#00ffff",
-            "#ffffff",
+            "#45475a",  # 0  black
+            "#f38ba8",  # 1  red
+            "#a6e3a1",  # 2  green
+            "#f9e2af",  # 3  yellow
+            "#89b4fa",  # 4  blue
+            "#cba6f7",  # 5  magenta
+            "#89dceb",  # 6  cyan
+            "#cdd6f4",  # 7  white
+            "#585b70",  # 8  bright black
+            "#f38ba8",  # 9  bright red
+            "#a6e3a1",  # 10 bright green
+            "#f9e2af",  # 11 bright yellow
+            "#89b4fa",  # 12 bright blue
+            "#cba6f7",  # 13 bright magenta
+            "#89dceb",  # 14 bright cyan
+            "#ffffff",  # 15 bright white
         ]
-        return palette[n] if n < len(palette) else "#ffffff"
+        return palette[n]
     if n < 232:
         n -= 16
         b = n % 6
@@ -153,12 +156,11 @@ def _256_to_hex(n: int) -> str:
 def _resolve_color(color, is_bg: bool = False) -> str:
     if color == "default":
         return TERM_BG if is_bg else TERM_FG
-    if isinstance(color, int):
-        return _256_to_hex(color)
-    if isinstance(color, (tuple, list)) and len(color) == 3:
-        r, g, b = color
-        return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
-    return PYTE_COLOR_MAP.get(str(color).lower(), TERM_BG if is_bg else TERM_FG)
+    # pyte returns 256-color and truecolor as bare 6-char hex strings (e.g. "00cd00")
+    s = str(color).lower()
+    if len(s) == 6 and all(c in "0123456789abcdef" for c in s):
+        return f"#{s}"
+    return PYTE_COLOR_MAP.get(s, TERM_BG if is_bg else TERM_FG)
 
 
 # ── Audio feedback tones ──────────────────────────────────────────────────────
@@ -254,13 +256,15 @@ class TerminalWidget(tk.Frame):
             borderwidth=0,
             wrap=tk.CHAR,
             cursor="xterm",
-            state=tk.DISABLED,
+            state=tk.NORMAL,
         )
         self._text.pack(fill=tk.BOTH, expand=True)
 
         self._text.bind("<Key>", self._on_key)
         self._text.bind("<MouseWheel>", self._on_mousewheel)
         self.bind("<MouseWheel>", self._on_mousewheel)
+        self._text.bind("<Button-3>", self._on_right_click)
+        self._text.bind("<<Paste>>", lambda e: "break")
         self._text.focus_set()
         self.bind("<Configure>", self._on_resize)
 
@@ -406,8 +410,6 @@ class TerminalWidget(tk.Frame):
         if not dirty_lines:
             return
 
-        self._text.config(state=tk.NORMAL)
-
         if full:
             self._text.delete("1.0", tk.END)
             for y in range(rows):
@@ -433,9 +435,23 @@ class TerminalWidget(tk.Frame):
         except Exception:
             pass
 
-        self._text.config(state=tk.DISABLED)
-
     # ── Input ──────────────────────────────────────────────────────────────
+
+    def _copy_selection(self):
+        try:
+            text = self._text.get(tk.SEL_FIRST, tk.SEL_LAST)
+            self.clipboard_clear()
+            self.clipboard_append(text)
+        except tk.TclError:
+            pass
+
+    def _on_right_click(self, event: tk.Event):
+        menu = tk.Menu(self, tearoff=0, bg="#313244", fg="#cdd6f4",
+                       activebackground="#45475a", activeforeground="#cdd6f4",
+                       relief=tk.FLAT, borderwidth=0)
+        menu.add_command(label="Copy", command=self._copy_selection)
+        menu.tk_popup(event.x_root, event.y_root)
+        return "break"
 
     def _on_key(self, event: tk.Event):
         with self._pty_lock:
@@ -444,6 +460,15 @@ class TerminalWidget(tk.Frame):
             return "break"
 
         ctrl = bool(event.state & 0x4)
+
+        # Ctrl+C: copy selection if present, otherwise send interrupt to PTY
+        if ctrl and event.keysym.lower() == "c":
+            try:
+                self._text.get(tk.SEL_FIRST, tk.SEL_LAST)
+                self._copy_selection()
+            except tk.TclError:
+                pty.write("\x03")
+            return "break"
 
         if ctrl and len(event.keysym) == 1 and event.keysym.isalpha():
             code = ord(event.keysym.upper()) - 64

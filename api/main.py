@@ -12,6 +12,7 @@ Set ANTHROPIC_API_KEY as a Space secret.
 import io
 import logging
 import os
+import re
 import wave
 
 import anthropic
@@ -38,6 +39,21 @@ _VALIDATE_SYSTEM = (
     "Reply 'false' only if the wake word is clearly absent and the text is noise or gibberish."
 )
 
+# ── Wake-word pattern (used for high-confidence short-circuit) ────────────────
+_WAKE_PATTERN = re.compile(
+    r"\b(aria|arya|area|ariel|ariah|aeria|areia|riya|ria|aya|are)\b|\bah\s+yeah\b",
+    re.IGNORECASE,
+)
+
+# ── Confidence thresholds ─────────────────────────────────────────────────────
+# Segments outside these bounds are dropped entirely (hard gibberish filter)
+_SEG_NO_SPEECH_MAX = 0.6
+_SEG_LOGPROB_MIN   = -1.0
+
+# Above these aggregate thresholds → high-confidence transcription → skip Claude
+_HIGH_CONF_NO_SPEECH_MAX = 0.3   # Whisper is sure it's speech
+_HIGH_CONF_LOGPROB_MIN   = -0.6  # Whisper is sure the tokens are correct
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -49,17 +65,28 @@ def _wav_to_numpy(data: bytes) -> np.ndarray:
     return audio
 
 
-def _transcribe(audio: np.ndarray) -> str:
+def _transcribe(audio: np.ndarray) -> tuple[str, float, float]:
+    """
+    Returns (text, avg_no_speech_prob, avg_logprob).
+    Segments that are clearly noise/gibberish are dropped.
+    If all segments are dropped, returns ("", 1.0, -2.0).
+    """
     segments, _ = _whisper.transcribe(audio, beam_size=1, language="en")
-    parts = []
+    parts: list[str] = []
+    no_speech_probs: list[float] = []
+    log_probs: list[float] = []
+
     for s in segments:
-        # Drop segments Whisper itself is unsure about:
-        #   no_speech_prob > 0.6  → likely silence / noise
-        #   avg_logprob   < -1.0  → low token-level confidence (gibberish)
-        if s.no_speech_prob > 0.6 or s.avg_logprob < -1.0:
+        if s.no_speech_prob > _SEG_NO_SPEECH_MAX or s.avg_logprob < _SEG_LOGPROB_MIN:
             continue
         parts.append(s.text.strip())
-    return " ".join(parts).strip()
+        no_speech_probs.append(s.no_speech_prob)
+        log_probs.append(s.avg_logprob)
+
+    text = " ".join(parts).strip()
+    avg_no_speech = sum(no_speech_probs) / len(no_speech_probs) if no_speech_probs else 1.0
+    avg_logprob   = sum(log_probs)       / len(log_probs)       if log_probs       else -2.0
+    return text, avg_no_speech, avg_logprob
 
 
 def _validate(text: str) -> tuple[bool, str]:
@@ -90,11 +117,20 @@ async def process(file: UploadFile):
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not decode WAV: {exc}")
 
-    text = _transcribe(audio)
+    text, avg_no_speech, avg_logprob = _transcribe(audio)
     if not text:
-        log.info("PROCESS  (empty transcript)")
+        log.info("PROCESS  (empty — dropped by gibberish filter)")
         return {"transcript": "", "valid": False, "verdict": "empty"}
 
+    has_wake_word = bool(_WAKE_PATTERN.search(text))
+    high_confidence = avg_no_speech < _HIGH_CONF_NO_SPEECH_MAX and avg_logprob > _HIGH_CONF_LOGPROB_MIN
+
+    if has_wake_word and high_confidence:
+        # Whisper is confident and wake word is clearly present — skip Claude
+        log.info("PROCESS  %r → SENT (short-circuit, no_speech=%.2f, logprob=%.2f)", text, avg_no_speech, avg_logprob)
+        return {"transcript": text, "valid": True, "verdict": "true"}
+
+    # Low confidence or wake word uncertain — let Claude decide
     valid, raw = _validate(text)
-    log.info("PROCESS  %r → %s (%s)", text, "SENT" if valid else "BLOCKED", raw)
+    log.info("PROCESS  %r → %s (%s, no_speech=%.2f, logprob=%.2f)", text, "SENT" if valid else "BLOCKED", raw, avg_no_speech, avg_logprob)
     return {"transcript": text, "valid": valid, "verdict": raw}

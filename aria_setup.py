@@ -143,19 +143,17 @@ def main() -> None:
         stop_spinner.set()
         t.join()
 
-        # Close the console before the GUI starts
+        # Hide the console window immediately, then detach
+        hwnd = kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+        sys.stdout.close()
+        sys.stdin.close()
+        sys.stdout = sys.__stdout__
+        sys.stdin = sys.__stdin__
+        sys.stderr = sys.__stderr__
         if allocated:
-            sys.stdout.close()
-            sys.stdin.close()
-            sys.stdout = sys.__stdout__
-            sys.stdin = sys.__stdin__
-            sys.stderr = sys.__stderr__
             kernel32.FreeConsole()
-        else:
-            # Hide the terminal window we were launched from
-            hwnd = kernel32.GetConsoleWindow()
-            if hwnd:
-                ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
     else:
         from aria_claude import AriaApp
 
