@@ -32,9 +32,22 @@ def _setup_done() -> bool:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _APP_KEY)
         winreg.QueryValueEx(key, "SetupDone")
         winreg.CloseKey(key)
-        return True
     except OSError:
         return False
+
+    # If a startup entry exists, verify it still points to the current exe.
+    # If the path is stale (exe moved/rebuilt), re-run setup to correct it.
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, _STARTUP_KEY)
+        registered, _ = winreg.QueryValueEx(key, APP_NAME)
+        winreg.CloseKey(key)
+        expected = f'"{_exe_path()}"'
+        if registered != expected:
+            return False
+    except OSError:
+        pass  # no startup entry — user chose not to register, that's fine
+
+    return True
 
 
 def _mark_setup_done() -> None:

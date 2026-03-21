@@ -58,13 +58,21 @@ def _wav_to_numpy(data: bytes) -> np.ndarray:
 
 
 def _transcribe(audio: np.ndarray) -> str:
-    segments, _ = _whisper.transcribe(audio, beam_size=5, language="en")
-    return " ".join(s.text.strip() for s in segments).strip()
+    segments, _ = _whisper.transcribe(audio, beam_size=1, language="en")
+    parts = []
+    for s in segments:
+        # Drop segments Whisper itself is unsure about:
+        #   no_speech_prob > 0.6  → likely silence / noise
+        #   avg_logprob   < -1.0  → low token-level confidence (gibberish)
+        if s.no_speech_prob > 0.6 or s.avg_logprob < -1.0:
+            continue
+        parts.append(s.text.strip())
+    return " ".join(parts).strip()
 
 
 def _validate(text: str) -> tuple[bool, str]:
     response = _anthropic.messages.create(
-        model="claude-haiku-4-5",
+        model="claude-haiku-4-5-20251001",
         max_tokens=10,
         system=_VALIDATE_SYSTEM,
         messages=[{"role": "user", "content": text}],
