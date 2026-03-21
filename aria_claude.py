@@ -245,6 +245,10 @@ class TerminalWidget(tk.Frame):
 
         self._tag_cache: dict[tuple, str] = {}
         self._tag_counter = 0
+        self._resize_job = None
+        self._font_obj = tkfont.Font(family=self._font[0], size=self._font[1])
+        self._cw: int = 0
+        self._ch: int = 0
 
         self._text = tk.Text(
             self,
@@ -259,6 +263,8 @@ class TerminalWidget(tk.Frame):
             state=tk.NORMAL,
         )
         self._text.pack(fill=tk.BOTH, expand=True)
+        self._cw = self._font_obj.measure("M")
+        self._ch = self._font_obj.metrics("linespace")
 
         self._text.bind("<Key>", self._on_key)
         self._text.bind("<MouseWheel>", self._on_mousewheel)
@@ -355,6 +361,15 @@ class TerminalWidget(tk.Frame):
         key = (fg, bg, bold, italic)
         if key in self._tag_cache:
             return self._tag_cache[key]
+        # Purge cache when it grows too large to prevent tkinter slowdown
+        if len(self._tag_cache) >= 256:
+            for tag_name in self._tag_cache.values():
+                try:
+                    self._text.tag_delete(tag_name)
+                except Exception:
+                    pass
+            self._tag_cache.clear()
+            self._need_full_redraw = True
         name = f"t{self._tag_counter}"
         self._tag_counter += 1
         style = " ".join(s for s in ("bold" if bold else "", "italic" if italic else "") if s)
@@ -505,16 +520,17 @@ class TerminalWidget(tk.Frame):
     # ── Resize ─────────────────────────────────────────────────────────────
 
     def _on_resize(self, event: tk.Event):
-        try:
-            f = tkfont.Font(family=self._font[0], size=self._font[1])
-            cw = f.measure("M")
-            ch = f.metrics("linespace")
-        except Exception:
-            return
+        if self._resize_job is not None:
+            self.after_cancel(self._resize_job)
+        self._resize_job = self.after(200, self._apply_resize, event.width, event.height)
+
+    def _apply_resize(self, width: int, height: int):
+        self._resize_job = None
+        cw, ch = self._cw, self._ch
         if cw <= 0 or ch <= 0:
             return
-        new_cols = max(20, event.width // cw)
-        new_rows = max(5, event.height // ch)
+        new_cols = max(20, width // cw)
+        new_rows = max(5, height // ch)
         if new_cols == self._cols and new_rows == self._rows:
             return
         self._cols, self._rows = new_cols, new_rows
@@ -571,9 +587,9 @@ class AriaApp:
         self._ensure_single_instance()
         self.root = tk.Tk()
         self.root.title("Aria — Claude")
-        self.root.geometry("1280x820")
         self.root.configure(bg="#1e1e2e")
         self.root.minsize(800, 500)
+        self.root.state("zoomed")
 
         _icon = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aria.ico")
         if os.path.exists(_icon):
