@@ -1022,6 +1022,11 @@ class AriaApp:
                 timeout=30,
             )
             resp.raise_for_status()
+
+            # If F9 was pressed while the API was in-flight, discard the result entirely.
+            if self._paused:
+                return
+
             data = resp.json()
 
             text = data.get("transcript", "")
@@ -1039,23 +1044,26 @@ class AriaApp:
             if valid and self._terminal and not self._paused:
                 cleaned = re.sub(r'\b(aria|arya|area|ariel|ariah|aeria|areia|riya|ria|aya|ah\s+yeah|are)\b[,\s]*', '', text, flags=re.IGNORECASE).strip()
                 self._terminal.send_text(cleaned or text)
-            elif not valid:
+            elif not valid and not self._paused:
                 skip_status = True
                 self.root.after(0, lambda: self._set_status("✗ Ignored: guess it was not meant for me", "#f38ba8"))
-                self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
+                self.root.after(3000, lambda: (None if self._paused else self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")))
 
         except requests.exceptions.ConnectionError:
             _log.error("TRANSCRIBE ERROR  API unreachable")
-            self.root.after(0, lambda: self._set_status("⚠ API unreachable", "#f38ba8"))
-            self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
+            if not self._paused:
+                self.root.after(0, lambda: self._set_status("⚠ API unreachable", "#f38ba8"))
+                self.root.after(3000, lambda: (None if self._paused else self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")))
         except requests.exceptions.Timeout:
             _log.error("TRANSCRIBE ERROR  API timed out")
-            self.root.after(0, lambda: self._set_status("⚠ API timed out", "#f38ba8"))
-            self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
+            if not self._paused:
+                self.root.after(0, lambda: self._set_status("⚠ API timed out", "#f38ba8"))
+                self.root.after(3000, lambda: (None if self._paused else self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")))
         except Exception as exc:
             _log.exception("TRANSCRIBE ERROR")
-            self.root.after(0, lambda: self._set_status("⚠ Error — see log", "#f38ba8"))
-            self.root.after(3000, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
+            if not self._paused:
+                self.root.after(0, lambda: self._set_status("⚠ Error — see log", "#f38ba8"))
+                self.root.after(3000, lambda: (None if self._paused else self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")))
             print(f"[transcribe] error: {exc}")
         finally:
             with self._lock:

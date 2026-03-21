@@ -2,10 +2,8 @@
 Aria Voice API — FastAPI service for transcription + validation.
 
 Endpoints:
-    GET  /health      — liveness check
-    POST /transcribe  — audio (WAV) → transcript text
-    POST /validate    — text → {valid, verdict}
-    POST /process     — audio (WAV) → {transcript, valid, verdict}
+    GET  /health  — liveness check
+    POST /process — audio (WAV) → {transcript, valid, verdict}
 
 Deploy to HuggingFace Spaces (Docker SDK, port 7860).
 Set ANTHROPIC_API_KEY as a Space secret.
@@ -20,7 +18,6 @@ import anthropic
 import numpy as np
 from fastapi import FastAPI, HTTPException, UploadFile
 from faster_whisper import WhisperModel
-from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("aria-api")
@@ -36,14 +33,9 @@ log.info("Whisper ready.")
 _anthropic = anthropic.Anthropic()
 
 _VALIDATE_SYSTEM = (
-    "You are a voice input filter for an AI coding assistant named Aria. "
-    "You receive speech-to-text transcriptions from a microphone. "
-    "Reply with only the word 'true' or 'false'. "
-    "Reply 'true' if the transcription contains the name 'Aria' or a likely speech-to-text mishearing of it "
-    "(e.g. 'Arya', 'Area', 'Ariel', 'Ariah', 'Aeria', 'Areia', 'Riya', 'Ria', 'Aya', 'Ah yeah', 'Are') — case-insensitive. "
-    "Be generous: if the wake word is present, reply 'true' even if the command is short, casual, or incomplete. "
-    "Only reply 'false' if the wake word is clearly absent AND the transcription is obviously background noise, "
-    "random words, or gibberish with no intent to address an assistant."
+    "Reply only 'true' or 'false'. "
+    "Reply 'true' if the text contains 'Aria' or a likely mishearing: Arya, Area, Ariel, Ariah, Aeria, Areia, Riya, Ria, Aya, Ah yeah, Are (case-insensitive). "
+    "Reply 'false' only if the wake word is clearly absent and the text is noise or gibberish."
 )
 
 
@@ -73,7 +65,7 @@ def _transcribe(audio: np.ndarray) -> str:
 def _validate(text: str) -> tuple[bool, str]:
     response = _anthropic.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=10,
+        max_tokens=1,
         system=_VALIDATE_SYSTEM,
         messages=[{"role": "user", "content": text}],
     )
@@ -86,33 +78,6 @@ def _validate(text: str) -> tuple[bool, str]:
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-@app.post("/transcribe")
-async def transcribe(file: UploadFile):
-    if not file.filename.lower().endswith(".wav"):
-        raise HTTPException(status_code=400, detail="Only WAV files are accepted.")
-    data = await file.read()
-    try:
-        audio = _wav_to_numpy(data)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Could not decode WAV: {exc}")
-    text = _transcribe(audio)
-    log.info("TRANSCRIBE  %r", text)
-    return {"transcript": text}
-
-
-class ValidateRequest(BaseModel):
-    text: str
-
-
-@app.post("/validate")
-def validate(body: ValidateRequest):
-    if not body.text.strip():
-        return {"valid": False, "verdict": "empty"}
-    valid, raw = _validate(body.text)
-    log.info("VALIDATE  %r → %s", body.text, raw)
-    return {"valid": valid, "verdict": raw}
 
 
 @app.post("/process")
