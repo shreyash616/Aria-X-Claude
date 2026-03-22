@@ -616,6 +616,8 @@ class AriaApp:
 
         # Mic health tracking
         self._mic_connected: bool = False
+        self._mic_active = threading.Event()
+        self._mic_active.set()  # active by default; cleared while paused
 
         self._terminal_ready: bool = False
         self._api_ready: bool = False
@@ -886,10 +888,12 @@ class AriaApp:
     # ── Shared audio stream ────────────────────────────────────────────────
 
     def _record_loop(self):
-        """Continuously read from the mic. Retries on disconnect."""
+        """Continuously read from the mic. Retries on disconnect. Closes mic while paused."""
         RETRY_S = 2.0
 
         while True:
+            self._mic_active.wait()  # block here while paused
+
             try:
                 stream_ctx = sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32")
                 stream_ctx.__enter__()
@@ -900,13 +904,13 @@ class AriaApp:
                 time.sleep(RETRY_S)
                 continue
 
-            was_connected = self._mic_connected
-            self._mic_connected = True
-            if not was_connected:
+            if not self._mic_connected:
+                self._mic_connected = True
                 self.root.after(0, self._on_mic_reconnected)
 
+            disconnected = False
             try:
-                while True:
+                while self._mic_active.is_set():
                     chunk, _ = stream_ctx.read(512)
                     chunk = chunk.copy().flatten()
                     with self._lock:
@@ -914,15 +918,18 @@ class AriaApp:
                             self._frames.append(chunk)
             except Exception as exc:
                 print(f"[audio] stream error: {exc}")
+                disconnected = True
             finally:
-                self._mic_connected = False
-                self.root.after(0, self._on_mic_disconnected)
                 try:
                     stream_ctx.__exit__(None, None, None)
                 except Exception:
                     pass
 
-            time.sleep(RETRY_S)
+            if disconnected:
+                self._mic_connected = False
+                self.root.after(0, self._on_mic_disconnected)
+                time.sleep(RETRY_S)
+            # else: paused intentionally — _mic_connected stays True, no notification
 
     def _on_mic_disconnected(self):
         with self._lock:
@@ -950,6 +957,7 @@ class AriaApp:
             return
         self._paused = not self._paused
         if self._paused:
+            self._mic_active.clear()  # signals _record_loop to close the stream
             with self._lock:
                 if self._state in ("listening", "processing"):
                     self._state = "idle"
@@ -957,6 +965,7 @@ class AriaApp:
             self._stop_transcribe_timer()
             self._set_status("⏸ Listening paused  (press F9 to resume)", "#f9e2af")
         else:
+            self._mic_active.set()  # signals _record_loop to reopen the stream
             self._set_status('Listening…  (end your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")
             self._enter_listening(skip_status=True)
 
