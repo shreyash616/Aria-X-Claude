@@ -964,9 +964,11 @@ class AriaApp:
                 self._frames.clear()
             self._stop_transcribe_timer()
             self._set_status("⏸ Listening paused  (press F9 to resume)", "#f9e2af")
+            self._model_lbl.config(text="")
         else:
             self._mic_active.set()  # signals _record_loop to reopen the stream
             self._set_status('Listening…  (end your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")
+            self._model_lbl.config(text="Mic ready  |  listening for speech", fg="#a6e3a1")
             self._enter_listening(skip_status=True)
 
     def _enter_listening(self, skip_status=False):
