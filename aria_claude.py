@@ -13,6 +13,7 @@ Dependencies:
     pip install sounddevice numpy requests pywinpty pyte
 """
 
+import collections
 import ctypes
 import io
 import logging
@@ -246,6 +247,7 @@ class TerminalWidget(tk.Frame):
         self._tag_cache: dict[tuple, str] = {}
         self._tag_counter = 0
         self._resize_job = None
+        self._pty_buf: collections.deque[bytes] = collections.deque()
         self._font_obj = tkfont.Font(family=self._font[0], size=self._font[1])
         self._cw: int = 0
         self._ch: int = 0
@@ -322,8 +324,7 @@ class TerminalWidget(tk.Frame):
                 if not data:
                     continue
                 raw = data.encode("utf-8", errors="replace") if isinstance(data, str) else data
-                with self._screen_lock:
-                    self._stream.feed(raw)
+                self._pty_buf.append(raw)
                 self._dirty = True
                 if not self._first_output_fired and self._on_first_output:
                     self._first_output_fired = True
@@ -342,6 +343,11 @@ class TerminalWidget(tk.Frame):
     # ── Rendering ──────────────────────────────────────────────────────────
 
     def _redraw_loop(self):
+        # Drain PTY output buffer into pyte — all screen mutations happen in the main thread
+        if self._pty_buf:
+            with self._screen_lock:
+                while self._pty_buf:
+                    self._stream.feed(self._pty_buf.popleft())
         if self._dirty and self._in_history:
             # New PTY output arrived while scrolled — jump back to bottom
             with self._screen_lock:
@@ -369,6 +375,7 @@ class TerminalWidget(tk.Frame):
                 except Exception:
                     pass
             self._tag_cache.clear()
+            self._tag_counter = 0
             self._need_full_redraw = True
         name = f"t{self._tag_counter}"
         self._tag_counter += 1
@@ -605,6 +612,7 @@ class AriaApp:
         self._lock = threading.Lock()
         self._listening_active = False
         self._listening_guard = threading.Lock()
+        self._status_restore_id: str | None = None
 
         # Mic health tracking
         self._mic_connected: bool = False
@@ -796,6 +804,21 @@ class AriaApp:
         if hasattr(self, "_transcribe_timer_id"):
             self.root.after_cancel(self._transcribe_timer_id)
 
+    def _schedule_status_restore(self):
+        """Schedule (or re-schedule) the 3-second status restore, cancelling any pending one."""
+        if self._status_restore_id is not None:
+            try:
+                self.root.after_cancel(self._status_restore_id)
+            except Exception:
+                pass
+        self._status_restore_id = self.root.after(
+            3000,
+            lambda: (
+                setattr(self, "_status_restore_id", None) or
+                (None if self._paused else self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
+            ),
+        )
+
     def _set_status(self, text: str, color: str = "#45475a"):
         self._status_var.set(text)
         self._status_lbl.config(fg=color)
@@ -966,6 +989,12 @@ class AriaApp:
                 self._listening_active = False
 
     def _listening_loop_body(self):
+        # Each chunk from stream_ctx.read(512) is exactly 512 samples.
+        # We only need the last ~0.3 s for the RMS check → last 10 chunks.
+        _TAIL = 10  # 10 × 512 / 16000 ≈ 0.32 s
+        _MIN_P1 = int(0.2 * SAMPLE_RATE / 512)  # ≥ 0.2 s of frames before checking
+        _MIN_P2 = int(0.5 * SAMPLE_RATE / 512)  # ≥ 0.5 s of frames before checking
+
         # Phase 1 — wait for speech onset
         while True:
             time.sleep(0.1)
@@ -974,13 +1003,14 @@ class AriaApp:
             with self._lock:
                 if self._state != "listening":
                     return
-                frames = list(self._frames)
+                n_frames = len(self._frames)
+                tail = list(self._frames[-_TAIL:])
 
-            if sum(len(f) for f in frames) / SAMPLE_RATE < 0.2:
+            if n_frames < _MIN_P1:
                 continue
 
-            recent = np.concatenate(frames)[-int(0.3 * SAMPLE_RATE):]
-            rms = float(np.sqrt(np.mean(recent**2)))
+            recent = np.concatenate(tail) if tail else np.array([], dtype=np.float32)
+            rms = float(np.sqrt(np.mean(recent**2))) if len(recent) else 0.0
 
             if rms >= SILENCE_RMS:
                 break  # speech detected
@@ -1003,13 +1033,14 @@ class AriaApp:
             with self._lock:
                 if self._state != "listening":
                     return
-                frames = list(self._frames)
+                n_frames = len(self._frames)
+                tail = list(self._frames[-_TAIL:])
 
-            if not frames or sum(len(f) for f in frames) / SAMPLE_RATE < 0.5:
+            if n_frames < _MIN_P2:
                 continue
 
-            recent = np.concatenate(frames)[-int(0.3 * SAMPLE_RATE):]
-            rms = float(np.sqrt(np.mean(recent**2)))
+            recent = np.concatenate(tail) if tail else np.array([], dtype=np.float32)
+            rms = float(np.sqrt(np.mean(recent**2))) if len(recent) else 0.0
 
             if rms < SILENCE_RMS:
                 if silence_since is None:
@@ -1088,23 +1119,23 @@ class AriaApp:
             elif not valid and not self._paused:
                 skip_status = True
                 self.root.after(0, lambda: self._set_status("✗ Ignored: guess it was not meant for me", "#f38ba8"))
-                self.root.after(3000, lambda: (None if self._paused else self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")))
+                self._schedule_status_restore()
 
         except requests.exceptions.ConnectionError:
             _log.error("TRANSCRIBE ERROR  API unreachable")
             if not self._paused:
                 self.root.after(0, lambda: self._set_status("⚠ API unreachable", "#f38ba8"))
-                self.root.after(3000, lambda: (None if self._paused else self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")))
+                self._schedule_status_restore()
         except requests.exceptions.Timeout:
             _log.error("TRANSCRIBE ERROR  API timed out")
             if not self._paused:
                 self.root.after(0, lambda: self._set_status("⚠ API timed out", "#f38ba8"))
-                self.root.after(3000, lambda: (None if self._paused else self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")))
+                self._schedule_status_restore()
         except Exception as exc:
             _log.exception("TRANSCRIBE ERROR")
             if not self._paused:
                 self.root.after(0, lambda: self._set_status("⚠ Error — see log", "#f38ba8"))
-                self.root.after(3000, lambda: (None if self._paused else self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")))
+                self._schedule_status_restore()
             print(f"[transcribe] error: {exc}")
         finally:
             with self._lock:
