@@ -435,6 +435,13 @@ class TerminalWidget(tk.Frame):
         if not dirty_lines:
             return
 
+        # Preserve any active mouse selection across the redraw
+        try:
+            sel_first = self._text.index(tk.SEL_FIRST)
+            sel_last = self._text.index(tk.SEL_LAST)
+        except tk.TclError:
+            sel_first = sel_last = None
+
         if full:
             self._text.delete("1.0", tk.END)
             for y in range(rows):
@@ -451,6 +458,13 @@ class TerminalWidget(tk.Frame):
                 self._text.delete(f"{y + 1}.0", f"{y + 1}.end")
                 for text, tag in self._build_segments(buf.get(y, {}), cols):
                     self._text.insert(f"{y + 1}.end", text, tag)
+
+        # Restore selection — indices are still valid since line content is unchanged
+        if sel_first and sel_last:
+            try:
+                self._text.tag_add(tk.SEL, sel_first, sel_last)
+            except tk.TclError:
+                pass
 
         try:
             idx = f"{cur_y + 1}.{cur_x}"
