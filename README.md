@@ -34,8 +34,8 @@ Aria is two components that work together:
 
 - **Embedded terminal** — full ConPTY session running `claude` inside a tkinter window, with colour (256-color + truecolor), scrollback, and full keyboard input
 - **Always-on listening** — Aria continuously listens; when speech is detected it records until silence, then sends to the API automatically
-- **Wake word** — start your command with *"Ok Aria"*; the API checks for "Aria" (and common mishearings) and blocks commands that don't contain it
-- **Pause / resume** — press `F9` to pause listening, press `F9` again to resume
+- **Wake word** — end your command with *"Ok Aria"*; the API checks for "Aria" (and common mishearings) and blocks commands that don't contain it
+- **Pause / resume** — press `F9` to pause listening (mic is fully closed); press `F9` again to resume
 - **Smart validation** — high-confidence transcriptions bypass Claude to save latency; ambiguous audio is verified by Claude Haiku
 - **Catppuccin Mocha theme** — dark terminal with full ANSI colour support
 - **Runs at startup** — optional Windows startup registration via a first-run setup wizard
@@ -100,8 +100,8 @@ The window opens with a live `claude` session already running inside it. You can
 
 | Action | How |
 |---|---|
-| Speak a command | Say *"Ok Aria, [your prompt]"* — Aria is always listening |
-| Pause listening | Press `F9` |
+| Speak a command | Say *"[your prompt], Ok Aria"* — Aria is always listening |
+| Pause listening | Press `F9` — mic closes completely |
 | Resume listening | Press `F9` again |
 
 **How a command is processed:**

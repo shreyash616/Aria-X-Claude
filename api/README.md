@@ -38,6 +38,8 @@ Desktop app forwards prompt to claude terminal
 
 The two-stage pipeline keeps latency low: obvious cases bypass Claude entirely, while uncertain transcriptions get a second opinion from Claude Haiku.
 
+The wake word (*"Ok Aria"*) is expected at the **end** of the utterance — e.g. *"list my files, Ok Aria"*.
+
 ---
 
 ## Endpoints
@@ -53,7 +55,7 @@ Accepts a `.wav` file upload. Returns a JSON object:
 
 ```json
 {
-  "transcript": "Hey Aria, what time is it?",
+  "transcript": "what time is it ok aria",
   "valid": true,
   "verdict": "true"
 }
@@ -82,6 +84,28 @@ Whisper assigns each audio segment a `no_speech_prob` (probability it is silence
 | High-confidence `avg_logprob` min | `-0.60` | Combined with wake-word match → skip Claude |
 
 If all segments are filtered out the endpoint returns `{"transcript": "", "valid": false, "verdict": "empty"}`.
+
+---
+
+## Logging
+
+Each request is logged with a consistent column layout:
+
+```
+09:00:01  seg  ✓ kept     │ 'list my files ok aria'                 │ ns=0.04  lp=-0.25
+09:00:01  seg  ✗ dropped  │ 'um'                                    │ ns=0.81  lp=-1.40
+09:00:01  chk  wake=YES  conf=YES  │ ns=0.04  lp=-0.25
+09:00:01  out  ✓ SENT     │ 'list my files ok aria'                 │ via=short-circuit
+```
+
+| Tag | Meaning |
+|---|---|
+| `seg` | Per-segment result from Whisper (kept or dropped by gibberish filter) |
+| `chk` | Wake-word and confidence check result |
+| `via` | Which path was taken (`short-circuit` skipped Claude; `claude` called Haiku) |
+| `out` | Final outcome — `SENT` or `BLOCKED` |
+
+Fields: `ns` = `no_speech_prob`, `lp` = `avg_logprob`.
 
 ---
 
