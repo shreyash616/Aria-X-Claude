@@ -592,6 +592,13 @@ class AriaApp:
 
     def __init__(self):
         self._ensure_single_instance()
+
+        # Must be set before the window is created for Windows to use it for taskbar grouping
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("aria.claude.app")
+        except Exception:
+            pass
+
         self.root = tk.Tk()
         self.root.title("Aria — Claude")
         self.root.configure(bg="#1e1e2e")
@@ -602,7 +609,14 @@ class AriaApp:
         if os.path.exists(_icon):
             self.root.iconbitmap(_icon)
             try:
-                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("aria.claude.app")
+                # Set large icon so the taskbar button shows the app icon, not python.exe's
+                WM_SETICON = 0x0080
+                LR_LOADFROMFILE = 0x10
+                hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+                for size, which in ((16, 0), (32, 1)):  # ICON_SMALL=0, ICON_BIG=1
+                    hicon = ctypes.windll.user32.LoadImageW(None, _icon, 1, size, size, LR_LOADFROMFILE)
+                    if hicon:
+                        ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, which, hicon)
             except Exception:
                 pass
 
