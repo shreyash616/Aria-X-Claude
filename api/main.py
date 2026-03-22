@@ -20,7 +20,7 @@ import numpy as np
 from fastapi import FastAPI, HTTPException, UploadFile
 from faster_whisper import WhisperModel
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("aria-api")
 
 app = FastAPI(title="Aria Voice API", version="1.0.0")
@@ -78,11 +78,9 @@ def _transcribe(audio: np.ndarray) -> tuple[str, float, float]:
 
     for s in segments:
         if s.no_speech_prob > _SEG_NO_SPEECH_MAX or s.avg_logprob < _SEG_LOGPROB_MIN:
-            log.info("SEGMENT  dropped %r  (no_speech=%.2f > %.1f or logprob=%.2f < %.1f)",
-                     s.text.strip(), s.no_speech_prob, _SEG_NO_SPEECH_MAX,
-                     s.avg_logprob, _SEG_LOGPROB_MIN)
+            log.info("  seg  ✗ dropped  │ %-40r │ ns=%.2f  lp=%.2f", s.text.strip(), s.no_speech_prob, s.avg_logprob)
             continue
-        log.info("SEGMENT  kept    %r  (no_speech=%.2f, logprob=%.2f)", s.text.strip(), s.no_speech_prob, s.avg_logprob)
+        log.info("  seg  ✓ kept     │ %-40r │ ns=%.2f  lp=%.2f", s.text.strip(), s.no_speech_prob, s.avg_logprob)
         parts.append(s.text.strip())
         no_speech_probs.append(s.no_speech_prob)
         log_probs.append(s.avg_logprob)
@@ -123,26 +121,24 @@ async def process(file: UploadFile):
 
     text, avg_no_speech, avg_logprob = _transcribe(audio)
     if not text:
-        log.info("PROCESS  (empty — dropped by gibberish filter)")
+        log.info("  out  ✗ empty    │ all segments dropped by gibberish filter")
         return {"transcript": "", "valid": False, "verdict": "empty"}
 
     has_wake_word = bool(_WAKE_PATTERN.search(text))
     high_confidence = avg_no_speech < _HIGH_CONF_NO_SPEECH_MAX and avg_logprob > _HIGH_CONF_LOGPROB_MIN
-
-    log.info("CHECK  wake_word=%s  high_confidence=%s  (no_speech=%.2f, logprob=%.2f)",
-             has_wake_word, high_confidence, avg_no_speech, avg_logprob)
+    wake_str = "wake=YES" if has_wake_word else "wake=NO "
+    conf_str = "conf=YES" if high_confidence else "conf=NO "
+    log.info("  chk  %s  %s  │ ns=%.2f  lp=%.2f", wake_str, conf_str, avg_no_speech, avg_logprob)
 
     if has_wake_word and high_confidence:
-        log.info("PROCESS  %r → SENT (short-circuit — skipped Claude)", text)
+        log.info("  out  ✓ SENT     │ %-40r │ via=short-circuit", text)
         return {"transcript": text, "valid": True, "verdict": "true"}
 
-    if not has_wake_word:
-        log.info("FALLBACK  no wake word detected — sending to Claude")
-    else:
-        log.info("FALLBACK  low confidence (no_speech=%.2f >= %.1f or logprob=%.2f <= %.1f) — sending to Claude",
-                 avg_no_speech, _HIGH_CONF_NO_SPEECH_MAX, avg_logprob, _HIGH_CONF_LOGPROB_MIN)
+    reason = "no wake word" if not has_wake_word else "low confidence"
+    log.info("  via  Claude    │ reason: %s", reason)
 
     valid, raw = _validate(text)
-    log.info("PROCESS  %r → %s (Claude said %r, no_speech=%.2f, logprob=%.2f)",
-             text, "SENT" if valid else "BLOCKED", raw, avg_no_speech, avg_logprob)
+    icon = "✓" if valid else "✗"
+    outcome = "SENT    " if valid else "BLOCKED "
+    log.info("  out  %s %s │ %-40r │ via=claude", icon, outcome, text)
     return {"transcript": text, "valid": valid, "verdict": raw}
