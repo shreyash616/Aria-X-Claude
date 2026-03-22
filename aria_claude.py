@@ -232,7 +232,7 @@ class TerminalWidget(tk.Frame):
 
         self._cols = 120
         self._rows = 36
-        self._screen = pyte.HistoryScreen(self._cols, self._rows, history=2000, ratio=3/self._rows)
+        self._screen = pyte.HistoryScreen(self._cols, self._rows, history=500, ratio=3/self._rows)
         self._stream = pyte.ByteStream(self._screen)
         self._screen_lock = threading.Lock()
         self._dirty = False
@@ -247,7 +247,7 @@ class TerminalWidget(tk.Frame):
         self._tag_cache: dict[tuple, str] = {}
         self._tag_counter = 0
         self._resize_job = None
-        self._pty_buf: collections.deque[bytes] = collections.deque()
+        self._pty_buf: collections.deque[bytes] = collections.deque(maxlen=256)  # ~1 MB cap
         self._font_obj = tkfont.Font(family=self._font[0], size=self._font[1])
         self._cw: int = 0
         self._ch: int = 0
