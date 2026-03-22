@@ -263,6 +263,7 @@ class TerminalWidget(tk.Frame):
             wrap=tk.CHAR,
             cursor="xterm",
             state=tk.NORMAL,
+            undo=False,  # prevent unbounded undo stack growth from continuous redraws
         )
         self._text.pack(fill=tk.BOTH, expand=True)
         self._cw = self._font_obj.measure("M")
@@ -343,10 +344,12 @@ class TerminalWidget(tk.Frame):
     # ── Rendering ──────────────────────────────────────────────────────────
 
     def _redraw_loop(self):
-        # Drain PTY output buffer into pyte — all screen mutations happen in the main thread
+        # Drain PTY output buffer into pyte — cap per frame to avoid blocking the main thread
         if self._pty_buf:
             with self._screen_lock:
-                while self._pty_buf:
+                for _ in range(64):  # max 64 × 4 KB = 256 KB per frame
+                    if not self._pty_buf:
+                        break
                     self._stream.feed(self._pty_buf.popleft())
         if self._dirty and self._in_history:
             # New PTY output arrived while scrolled — jump back to bottom
