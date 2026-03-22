@@ -815,7 +815,7 @@ class AriaApp:
             3000,
             lambda: (
                 setattr(self, "_status_restore_id", None) or
-                (None if self._paused else self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
+                (None if self._paused else self._set_status('Listening…  (end your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
             ),
         )
 
@@ -957,7 +957,7 @@ class AriaApp:
             self._stop_transcribe_timer()
             self._set_status("⏸ Listening paused  (press F9 to resume)", "#f9e2af")
         else:
-            self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")
+            self._set_status('Listening…  (end your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7")
             self._enter_listening(skip_status=True)
 
     def _enter_listening(self, skip_status=False):
@@ -974,7 +974,7 @@ class AriaApp:
             self._state = "listening"
             self._frames.clear()
         if not skip_status:
-            self.root.after(0, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
+            self.root.after(0, lambda: self._set_status('Listening…  (end your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
         threading.Thread(target=self._listening_loop, daemon=True).start()
 
     def _listening_loop(self):
@@ -1020,7 +1020,7 @@ class AriaApp:
                 if self._state == "listening":
                     self._frames.clear()
 
-        self.root.after(0, lambda: self._set_status('Listening…  (start your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
+        self.root.after(0, lambda: self._set_status('Listening…  (end your command with "Ok Aria"  ·  F9 to pause)', "#cba6f7"))
 
         # Phase 2 — record until silence
         silence_since: float | None = None

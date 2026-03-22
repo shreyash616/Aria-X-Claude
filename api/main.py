@@ -78,7 +78,11 @@ def _transcribe(audio: np.ndarray) -> tuple[str, float, float]:
 
     for s in segments:
         if s.no_speech_prob > _SEG_NO_SPEECH_MAX or s.avg_logprob < _SEG_LOGPROB_MIN:
+            log.info("SEGMENT  dropped %r  (no_speech=%.2f > %.1f or logprob=%.2f < %.1f)",
+                     s.text.strip(), s.no_speech_prob, _SEG_NO_SPEECH_MAX,
+                     s.avg_logprob, _SEG_LOGPROB_MIN)
             continue
+        log.info("SEGMENT  kept    %r  (no_speech=%.2f, logprob=%.2f)", s.text.strip(), s.no_speech_prob, s.avg_logprob)
         parts.append(s.text.strip())
         no_speech_probs.append(s.no_speech_prob)
         log_probs.append(s.avg_logprob)
@@ -125,12 +129,20 @@ async def process(file: UploadFile):
     has_wake_word = bool(_WAKE_PATTERN.search(text))
     high_confidence = avg_no_speech < _HIGH_CONF_NO_SPEECH_MAX and avg_logprob > _HIGH_CONF_LOGPROB_MIN
 
+    log.info("CHECK  wake_word=%s  high_confidence=%s  (no_speech=%.2f, logprob=%.2f)",
+             has_wake_word, high_confidence, avg_no_speech, avg_logprob)
+
     if has_wake_word and high_confidence:
-        # Whisper is confident and wake word is clearly present — skip Claude
-        log.info("PROCESS  %r → SENT (short-circuit, no_speech=%.2f, logprob=%.2f)", text, avg_no_speech, avg_logprob)
+        log.info("PROCESS  %r → SENT (short-circuit — skipped Claude)", text)
         return {"transcript": text, "valid": True, "verdict": "true"}
 
-    # Low confidence or wake word uncertain — let Claude decide
+    if not has_wake_word:
+        log.info("FALLBACK  no wake word detected — sending to Claude")
+    else:
+        log.info("FALLBACK  low confidence (no_speech=%.2f >= %.1f or logprob=%.2f <= %.1f) — sending to Claude",
+                 avg_no_speech, _HIGH_CONF_NO_SPEECH_MAX, avg_logprob, _HIGH_CONF_LOGPROB_MIN)
+
     valid, raw = _validate(text)
-    log.info("PROCESS  %r → %s (%s, no_speech=%.2f, logprob=%.2f)", text, "SENT" if valid else "BLOCKED", raw, avg_no_speech, avg_logprob)
+    log.info("PROCESS  %r → %s (Claude said %r, no_speech=%.2f, logprob=%.2f)",
+             text, "SENT" if valid else "BLOCKED", raw, avg_no_speech, avg_logprob)
     return {"transcript": text, "valid": valid, "verdict": raw}
